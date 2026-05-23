@@ -286,6 +286,41 @@ select.fi option{background:var(--bg2);color:var(--text)}
 }
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
+.season-del-btn {
+  background:none;border:none;color:var(--text3);font-size:16px;
+  cursor:pointer;padding:4px 6px;border-radius:6px;flex-shrink:0;
+  transition:color .2s, background .2s;
+}
+.season-del-btn:active { color:var(--red); background:rgba(224,92,92,.1); }
+
+/* Export / Import buttons */
+.backup-row {
+  display:grid;grid-template-columns:1fr 1fr;gap:9px;
+  margin-bottom:14px;
+}
+.btn-export {
+  display:flex;align-items:center;justify-content:center;gap:6px;
+  padding:12px;background:var(--card);
+  border:1px solid var(--border);border-radius:var(--r-sm);
+  color:var(--accent);font-family:'DM Sans',sans-serif;
+  font-size:13px;font-weight:500;cursor:pointer;
+}
+.btn-export:active { background:var(--card2); }
+.btn-import {
+  display:flex;align-items:center;justify-content:center;gap:6px;
+  padding:12px;background:var(--card);
+  border:1px solid rgba(232,184,75,.3);border-radius:var(--r-sm);
+  color:var(--gold);font-family:'DM Sans',sans-serif;
+  font-size:13px;font-weight:500;cursor:pointer;
+}
+.btn-import:active { background:var(--card2); }
+.backup-note {
+  font-size:11px;color:var(--text3);
+  padding:8px 10px;background:var(--bg3);
+  border-radius:var(--r-sm);margin-bottom:14px;
+  line-height:1.5;
+}
+
 /* ── MISC ── */
 #photoInput{display:none}
 .empty-state{text-align:center;padding:40px 20px;color:var(--text3)}

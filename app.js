@@ -554,12 +554,15 @@ function openSeasonModal() {
 function renderSeasonList() {
   const list = document.getElementById('season-list');
   list.innerHTML = S.seasons.map(s => `
-    <li class="season-item" onclick="selectSeason('${s.id}')">
-      <div class="season-check ${s.id===S.activeSeason?'active':''}">
+    <li class="season-item">
+      <div class="season-check ${s.id===S.activeSeason?'active':''}" onclick="selectSeason('${s.id}')">
         ${s.id===S.activeSeason?'✓':''}
       </div>
-      <span class="season-name">Saison ${s.name}</span>
+      <span class="season-name" onclick="selectSeason('${s.id}')" style="flex:1;cursor:pointer">Saison ${s.name}</span>
       <span class="season-count">${s.tours.length} tours</span>
+      ${S.seasons.length > 1
+        ? `<button class="season-del-btn" onclick="deleteSeason('${s.id}')" title="Supprimer cette saison">🗑</button>`
+        : `<span style="width:32px"></span>`}
     </li>`).join('');
 }
 
@@ -569,6 +572,25 @@ function selectSeason(id) {
   closeModal('modal-season');
   renderSeasonBadge();
   renderActive();
+}
+
+function deleteSeason(id) {
+  const s = S.seasons.find(s => s.id === id);
+  if (!s) return;
+  const confirmed = window.confirm(
+    `Supprimer la saison ${s.name} et ses ${s.tours.length} tours ?\n\nCette action est irréversible.\nConsidérez d'abord faire une sauvegarde (bouton Exporter).`
+  );
+  if (!confirmed) return;
+  S.seasons = S.seasons.filter(s => s.id !== id);
+  // Si on supprime la saison active, basculer sur la première disponible
+  if (S.activeSeason === id) {
+    S.activeSeason = S.seasons[0]?.id || null;
+  }
+  persist();
+  renderSeasonBadge();
+  renderSeasonList();
+  renderActive();
+  showToast(`Saison ${s.name} supprimée`);
 }
 
 function addNewSeason() {
@@ -585,6 +607,62 @@ function addNewSeason() {
   renderSeasonBadge();
   renderActive();
   showToast(`Saison ${name} créée ✓`);
+}
+
+// ── EXPORT / IMPORT ───────────────────────────────────────
+function exportData() {
+  const payload = {
+    version: 2,
+    exportDate: new Date().toISOString(),
+    appName: 'Tours Lise B.',
+    seasons: S.seasons,
+    activeSeason: S.activeSeason,
+  };
+  const json = JSON.stringify(payload, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  const date = new Date().toISOString().slice(0,10);
+  a.href     = url;
+  a.download = `tours-lise-backup-${date}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('Sauvegarde téléchargée ✓');
+}
+
+function triggerImport() {
+  document.getElementById('importInput').click();
+}
+
+function importData(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      const payload = JSON.parse(ev.target.result);
+      // Validation minimale
+      if (!payload.seasons || !Array.isArray(payload.seasons)) {
+        showToast('❌ Fichier invalide'); return;
+      }
+      const confirmed = window.confirm(
+        `Importer ${payload.seasons.length} saison(s) depuis le fichier ?\n\nVos données actuelles seront remplacées.\nDate de sauvegarde : ${payload.exportDate ? new Date(payload.exportDate).toLocaleDateString('fr-CA') : 'inconnue'}`
+      );
+      if (!confirmed) return;
+      S.seasons      = payload.seasons;
+      S.activeSeason = payload.activeSeason || payload.seasons[0]?.id;
+      persist();
+      renderSeasonBadge();
+      closeModal('modal-season');
+      renderActive();
+      showToast(`Import réussi — ${payload.seasons.length} saison(s) ✓`);
+    } catch(e) {
+      showToast('❌ Erreur de lecture du fichier');
+    }
+  };
+  reader.readAsText(file);
+  document.getElementById('importInput').value = '';
 }
 
 // ── PHOTO ─────────────────────────────────────────────────
@@ -638,6 +716,11 @@ document.addEventListener('DOMContentLoaded', () => {
       showToast('Nom régénéré');
     });
   }
+
+  // Import input
+  document.getElementById('importInput').addEventListener('change', function(e) {
+    importData(e.target.files[0]);
+  });
 
   // Photo input
   document.getElementById('photoInput').addEventListener('change', function(e) {

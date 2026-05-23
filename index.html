@@ -64,6 +64,7 @@
 
 <div id="toast" class="toast"></div>
 <input type="file" id="photoInput" accept="image/*" capture="environment">
+<input type="file" id="importInput" accept=".json,application/json" style="display:none">
 
 <!-- Datalists pour autocomplete -->
 <datalist id="dl-activities"></datalist>
@@ -179,7 +180,23 @@
     <div class="modal-handle"></div>
     <div class="modal-title">Saisons</div>
     <div class="modal-body">
+
+      <!-- Sauvegarde -->
+      <div class="form-sep" style="margin:0 -18px 10px">💾 Sauvegarde des données</div>
+      <div class="backup-note">
+        Exportez avant de mettre à jour l'app ou de supprimer une saison.<br>
+        Importez pour restaurer après une réinstallation.
+      </div>
+      <div class="backup-row">
+        <button class="btn-export" onclick="exportData()">⬇️ Exporter</button>
+        <button class="btn-import" onclick="triggerImport()">⬆️ Importer</button>
+      </div>
+
+      <!-- Liste des saisons -->
+      <div class="form-sep" style="margin:0 -18px 10px">📅 Saisons</div>
       <ul class="season-list" id="season-list"></ul>
+
+      <!-- Nouvelle saison -->
       <div class="form-sep" style="margin:0 -18px 12px">Nouvelle saison</div>
       <div class="new-season-row">
         <input type="text" id="new-season-input" class="fi" placeholder="ex: 2026" inputmode="numeric"
