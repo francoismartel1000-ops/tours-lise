@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Tours Lise">
+  <meta name="theme-color" content="#0c1a27">
+  <title>Tours Lise B.</title>
+  <link rel="manifest" href="./manifest.json">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="stylesheet" href="./style.css">
+  <style>
+    /* ── Champ label avec bouton régénérer ── */
+    .label-row { display:flex; gap:8px; align-items:flex-end; }
+    .label-row .fi { flex:1; }
+    .btn-regen {
+      flex-shrink:0; width:44px; height:44px;
+      background:var(--card2); border:1px solid var(--border);
+      border-radius:var(--r-sm); color:var(--accent);
+      font-size:18px; cursor:pointer; display:flex;
+      align-items:center; justify-content:center;
+    }
+    .btn-regen:active { background:var(--bg3); }
+    /* Indicateur "auto" sous le champ label */
+    .label-hint {
+      font-size:10px; color:var(--text3); margin-top:4px;
+      font-style:italic;
+    }
+    .label-hint.manual { color:var(--gold-dim); }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="app-title">Tours <span>Lise B.</span></div>
+      <button class="season-btn" onclick="openSeasonModal()">
+        <span id="season-badge">Saison 2025</span>
+        <span class="arrow">▼</span>
+      </button>
+    </div>
+  </header>
+
+  <nav class="tab-bar">
+    <button class="tab-btn active" data-tab="tours"><span class="ti">🚢</span>Tours</button>
+    <button class="tab-btn" data-tab="tips"><span class="ti">💰</span>Pourboires</button>
+    <button class="tab-btn" data-tab="work"><span class="ti">⏱</span>Travail</button>
+  </nav>
+
+  <main class="content-area">
+    <section id="panel-tours" class="panel active">
+      <div class="sec-title">Tours effectués</div>
+      <div class="sec-sub">Tapez 📄 pour photo · › pour modifier</div>
+      <div id="tours-list"></div>
+      <button class="add-btn" onclick="openAddTour()">＋ Nouveau tour</button>
+    </section>
+    <section id="panel-tips"  class="panel"></section>
+    <section id="panel-work"  class="panel"></section>
+  </main>
+</div>
+
+<div id="toast" class="toast"></div>
+<input type="file" id="photoInput" accept="image/*" capture="environment">
+
+<!-- Datalists pour autocomplete -->
+<datalist id="dl-activities"></datalist>
+<datalist id="dl-ships"></datalist>
+
+<!-- ══════════════════════════════════════════════════════
+     MODAL TOUR — Formulaire unifié v3
+     Ordre : Date → Lieu → Navire → Nom (auto) → reste
+══════════════════════════════════════════════════════ -->
+<div id="modal-tour" class="modal-overlay">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="tour-modal-title">Nouveau tour</div>
+    <div class="modal-body">
+      <input type="hidden" id="tf-id">
+
+      <!-- 1. DATE -->
+      <div class="fg">
+        <label class="fl">Date</label>
+        <input type="date" id="tf-date" class="fi">
+      </div>
+
+      <!-- 2. LIEU / ACTIVITÉ avec autocomplete -->
+      <div class="fg">
+        <label class="fl">Lieu / Activité</label>
+        <input type="text" id="tf-activity" class="fi"
+               placeholder="ex: Saguenay National Park"
+               list="dl-activities"
+               autocomplete="off">
+      </div>
+
+      <!-- 3. NAVIRE avec autocomplete (historique + horaire 2026) -->
+      <div class="fg">
+        <label class="fl">Navire</label>
+        <input type="text" id="tf-ship" class="fi"
+               placeholder="ex: Viking Mars"
+               list="dl-ships"
+               autocomplete="off">
+      </div>
+
+      <!-- 4. NOM DU TOUR (auto-généré, modifiable) -->
+      <div class="fg">
+        <label class="fl">Nom du tour</label>
+        <div class="label-row">
+          <input type="text" id="tf-label" class="fi"
+                 placeholder="Généré automatiquement…">
+          <button class="btn-regen" id="btn-regen-label" title="Régénérer le nom automatique">↻</button>
+        </div>
+        <div class="label-hint" id="label-hint">Généré depuis : date · lieu · navire</div>
+      </div>
+
+      <!-- Infos complémentaires -->
+      <div class="fr3">
+        <div class="fg">
+          <label class="fl">Bus</label>
+          <input type="text" id="tf-bus" class="fi" placeholder="5">
+        </div>
+        <div class="fg">
+          <label class="fl">Adultes</label>
+          <input type="number" id="tf-adults" class="fi" placeholder="0" inputmode="numeric">
+        </div>
+        <div class="fg">
+          <label class="fl">Escorte</label>
+          <input type="number" id="tf-escort" class="fi" placeholder="0" inputmode="numeric">
+        </div>
+      </div>
+
+      <!-- Pourboires -->
+      <div class="form-sep">💰 Pourboires</div>
+      <div class="fr2">
+        <div class="fg">
+          <label class="fl">$ CAD</label>
+          <input type="number" id="tf-can" class="fi" placeholder="0" inputmode="decimal">
+        </div>
+        <div class="fg">
+          <label class="fl">$ USD</label>
+          <input type="number" id="tf-us"  class="fi" placeholder="0" inputmode="decimal">
+        </div>
+      </div>
+      <div class="fr2">
+        <div class="fg">
+          <label class="fl">€ EUR</label>
+          <input type="number" id="tf-eur" class="fi" placeholder="0" inputmode="decimal">
+        </div>
+        <div class="fg">
+          <label class="fl">$ AUD</label>
+          <input type="number" id="tf-aud" class="fi" placeholder="0" inputmode="decimal">
+        </div>
+      </div>
+
+      <!-- Lignes de travail -->
+      <div class="form-sep">⏱ Temps de travail</div>
+      <div id="wl-container" class="wl-list"></div>
+      <button class="add-wl-btn" onclick="addWorkLine()">＋ Ajouter une ligne de temps</button>
+
+      <!-- Actions -->
+      <div class="f-actions" style="margin-top:16px">
+        <button class="btn-cancel" onclick="closeModal('modal-tour')">Annuler</button>
+        <button id="tf-delete-btn" class="btn-danger" onclick="deleteTour()" style="display:none">🗑</button>
+        <button class="btn-save" onclick="saveTour()">Sauvegarder</button>
+      </div>
+
+      <input type="hidden" id="tf-children" value="0">
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     MODAL SAISONS
+══════════════════════════════════════════════════════ -->
+<div id="modal-season" class="modal-overlay">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Saisons</div>
+    <div class="modal-body">
+      <ul class="season-list" id="season-list"></ul>
+      <div class="form-sep" style="margin:0 -18px 12px">Nouvelle saison</div>
+      <div class="new-season-row">
+        <input type="text" id="new-season-input" class="fi" placeholder="ex: 2026" inputmode="numeric"
+          onkeydown="if(event.key==='Enter') addNewSeason()">
+        <button class="btn-add-season" onclick="addNewSeason()">Créer</button>
+      </div>
+      <div class="f-actions" style="margin-top:14px">
+        <button class="btn-cancel" onclick="closeModal('modal-season')">Fermer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════
+     MODAL PHOTO
+══════════════════════════════════════════════════════ -->
+<div id="modal-photo" class="modal-overlay">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="photo-viewer-title">Feuille de travail</div>
+    <div class="modal-body" style="padding-top:4px">
+      <img id="photo-full-img" class="photo-full" src="" alt="feuille">
+      <div class="photo-actions">
+        <button class="btn-photo" id="btn-replace-photo">📷 Remplacer</button>
+        <button class="btn-photo-del" id="btn-delete-photo">🗑</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="./data.js"></script>
+<script src="./app.js"></script>
+<script>
+  // Mettre à jour le hint sous le champ label
+  (function() {
+    function updateHint() {
+      const hint = document.getElementById('label-hint');
+      if (!hint) return;
+      if (typeof _labelTouched !== 'undefined' && _labelTouched) {
+        hint.textContent = '✏️ Nom personnalisé — appuyez sur ↻ pour régénérer';
+        hint.className = 'label-hint manual';
+      } else {
+        hint.textContent = 'Généré depuis : date · lieu · navire';
+        hint.className = 'label-hint';
+      }
+    }
+    // Poll léger car _labelTouched est dans app.js
+    setInterval(updateHint, 300);
+  })();
+</script>
+</body>
+</html>
