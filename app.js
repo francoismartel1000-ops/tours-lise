@@ -240,6 +240,7 @@ let _editingTourId = null;
 function openAddTour() {
   _editingTourId = null;
   _labelTouched = false;
+  _pendingPhoto = null;
   document.getElementById('tour-modal-title').textContent = 'Nouveau tour';
   document.getElementById('tf-id').value        = '';
   document.getElementById('tf-date').value      = new Date().toISOString().slice(0,10);
@@ -266,7 +267,8 @@ function openEditTour(id) {
   const t = season.tours.find(t => t.id === id);
   if (!t) return;
   _editingTourId = id;
-  _labelTouched = true; // En édition, le label existant est conservé tel quel
+  _labelTouched = true;
+  _pendingPhoto = null; // En édition, le label existant est conservé tel quel
   document.getElementById('tour-modal-title').textContent = 'Modifier le tour';
   document.getElementById('tf-id').value        = t.id;
   document.getElementById('tf-date').value      = t.date;
@@ -459,13 +461,16 @@ function saveTour() {
 
   if (editingId) {
     const existing = season.tours.find(t => t.id === editingId);
-    if (existing) tourData.photo = existing.photo;
+    // Priorité : photo déjà sur le tour existant, sinon photo en attente
+    tourData.photo = (existing && existing.photo) || _pendingPhoto || null;
     const idx = season.tours.findIndex(t => t.id === editingId);
     if (idx >= 0) season.tours[idx] = tourData;
     else season.tours.push(tourData);
   } else {
+    tourData.photo = _pendingPhoto || null;
     season.tours.push(tourData);
   }
+  _pendingPhoto = null; // réinitialiser après sauvegarde
 
   persist();
 
@@ -713,7 +718,8 @@ function importData(file) {
 
 // ── PHOTO ─────────────────────────────────────────────────
 let _photoTargetId = null;
-let _photoInProgress = false; // verrou pendant la sélection iOS
+let _photoInProgress = false;
+let _pendingPhoto = null; // photo en attente pour un nouveau tour
 
 function triggerPhoto(tourId) {
   _photoTargetId = tourId;
@@ -787,25 +793,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Photo input
   document.getElementById('photoInput').addEventListener('change', function(e) {
-    _photoInProgress = false; // lever le verrou dès qu'on a le fichier
+    _photoInProgress = false; // lever le verrou
+    _saving = false;          // débloquer le bouton Sauvegarder
     const file = e.target.files[0];
     if (!file || !_photoTargetId) return;
     const reader = new FileReader();
     reader.onload = ev => {
       const season = currentSeason();
-      const tour = season.tours.find(t => t.id === _photoTargetId);
+      // Chercher le tour dans la saison (tours déjà sauvegardés)
+      let tour = season.tours.find(t => t.id === _photoTargetId);
+
       if (tour) {
+        // Tour existant — sauvegarder la photo directement en localStorage
         tour.photo = ev.target.result;
         persist();
-        // Rafraîchir sans fermer le modal de tour s'il est ouvert
-        const tourModal = document.getElementById('modal-tour');
-        if (tourModal && tourModal.classList.contains('open')) {
-          // Mettre à jour juste la vignette dans le modal si besoin
-          renderTours();
-        } else {
-          renderTours();
-        }
-        showToast('Photo ajoutée ✓');
+        renderTours();
+        showToast('Photo sauvegardée ✓');
+      } else {
+        // Tour en cours de création (pas encore sauvegardé)
+        // Stocker temporairement pour l'appliquer au moment de saveTour()
+        _pendingPhoto = ev.target.result;
+        showToast('Photo ajoutée — pensez à Sauvegarder ✓');
       }
       _photoTargetId = null;
     };
