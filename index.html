@@ -227,6 +227,23 @@
   </div>
 </div>
 
+<!-- ══════════════════════════════════════════════════════
+     MODAL CONFIRMATION (iOS-safe, remplace window.confirm)
+══════════════════════════════════════════════════════ -->
+<div id="modal-confirm" class="modal-overlay">
+  <div class="modal-sheet" style="max-height:50dvh">
+    <div class="modal-handle"></div>
+    <div class="modal-title" style="font-size:16px">Confirmation</div>
+    <div class="modal-body">
+      <p id="confirm-msg" style="font-size:14px;color:var(--text2);line-height:1.6;margin-bottom:20px;white-space:pre-line"></p>
+      <div class="f-actions">
+        <button class="btn-cancel" onclick="confirmNo()">Annuler</button>
+        <button class="btn-danger" onclick="confirmYes()" style="flex:2">Confirmer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="./data.js"></script>
 <script src="./app.js"></script>
 <script>

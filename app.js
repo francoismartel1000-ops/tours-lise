@@ -388,6 +388,25 @@ function removeWorkLine(id) {
   refreshWorkLinesUI();
 }
 
+// ── CONFIRMATION CUSTOM (iOS-safe, pas de window.confirm) ─
+let _confirmCallback = null;
+
+function showConfirm(message, onYes) {
+  document.getElementById('confirm-msg').textContent = message;
+  _confirmCallback = onYes;
+  openModal('modal-confirm');
+}
+
+function confirmYes() {
+  closeModal('modal-confirm');
+  if (_confirmCallback) { _confirmCallback(); _confirmCallback = null; }
+}
+
+function confirmNo() {
+  closeModal('modal-confirm');
+  _confirmCallback = null;
+}
+
 // ── SAVE TOUR ─────────────────────────────────────────────
 function saveTour() {
   const season = currentSeason();
@@ -396,7 +415,8 @@ function saveTour() {
   const label = document.getElementById('tf-label').value.trim();
   if (!label) { showToast('Entrez un nom de tour'); return; }
 
-  const tour = {
+  // Capturer toutes les valeurs AVANT de fermer le modal
+  const tourData = {
     id:       _editingTourId || uid(),
     date:     document.getElementById('tf-date').value,
     label,
@@ -422,13 +442,16 @@ function saveTour() {
     }))
   };
 
-  if (_editingTourId) {
-    const existing = season.tours.find(t => t.id === _editingTourId);
-    if (existing) tour.photo = existing.photo;
-    const idx = season.tours.findIndex(t => t.id === _editingTourId);
-    if (idx >= 0) season.tours[idx] = tour; else season.tours.push(tour);
+  const editingId = _editingTourId; // capturer avant reset
+
+  if (editingId) {
+    const existing = season.tours.find(t => t.id === editingId);
+    if (existing) tourData.photo = existing.photo;
+    const idx = season.tours.findIndex(t => t.id === editingId);
+    if (idx >= 0) season.tours[idx] = tourData;
+    else season.tours.push(tourData);
   } else {
-    season.tours.push(tour);
+    season.tours.push(tourData);
   }
 
   persist();
@@ -439,8 +462,7 @@ function saveTour() {
 
 function deleteTour() {
   if (!_editingTourId) return;
-  const confirmed = window.confirm('Supprimer ce tour ? Cette action est irréversible.');
-  if (confirmed) _doDeleteTour();
+  showConfirm('Supprimer ce tour ? Cette action est irréversible.', _doDeleteTour);
 }
 
 function _doDeleteTour() {
@@ -569,28 +591,30 @@ function renderSeasonList() {
 function selectSeason(id) {
   S.activeSeason = id;
   persist();
-  closeModal('modal-season');
   renderSeasonBadge();
-  renderActive();
+  renderSeasonList();
+  // Petit délai pour laisser l'UI se mettre à jour avant de fermer
+  setTimeout(() => {
+    closeModal('modal-season');
+    renderActive();
+  }, 80);
 }
 
 function deleteSeason(id) {
   const s = S.seasons.find(s => s.id === id);
   if (!s) return;
-  const confirmed = window.confirm(
-    `Supprimer la saison ${s.name} et ses ${s.tours.length} tours ?\n\nCette action est irréversible.\nConsidérez d'abord faire une sauvegarde (bouton Exporter).`
+  showConfirm(
+    `Supprimer la saison ${s.name} (${s.tours.length} tours) ?\n\nCette action est irréversible. Exportez d'abord si nécessaire.`,
+    () => {
+      S.seasons = S.seasons.filter(sx => sx.id !== id);
+      if (S.activeSeason === id) S.activeSeason = S.seasons[0]?.id || null;
+      persist();
+      renderSeasonBadge();
+      renderSeasonList();
+      renderActive();
+      showToast(`Saison ${s.name} supprimée`);
+    }
   );
-  if (!confirmed) return;
-  S.seasons = S.seasons.filter(s => s.id !== id);
-  // Si on supprime la saison active, basculer sur la première disponible
-  if (S.activeSeason === id) {
-    S.activeSeason = S.seasons[0]?.id || null;
-  }
-  persist();
-  renderSeasonBadge();
-  renderSeasonList();
-  renderActive();
-  showToast(`Saison ${s.name} supprimée`);
 }
 
 function addNewSeason() {
@@ -642,21 +666,24 @@ function importData(file) {
   reader.onload = ev => {
     try {
       const payload = JSON.parse(ev.target.result);
-      // Validation minimale
       if (!payload.seasons || !Array.isArray(payload.seasons)) {
         showToast('❌ Fichier invalide'); return;
       }
-      const confirmed = window.confirm(
-        `Importer ${payload.seasons.length} saison(s) depuis le fichier ?\n\nVos données actuelles seront remplacées.\nDate de sauvegarde : ${payload.exportDate ? new Date(payload.exportDate).toLocaleDateString('fr-CA') : 'inconnue'}`
+      const dateStr = payload.exportDate
+        ? new Date(payload.exportDate).toLocaleDateString('fr-CA')
+        : 'inconnue';
+      showConfirm(
+        `Importer ${payload.seasons.length} saison(s) ?\nSauvegarde du : ${dateStr}\n\nVos données actuelles seront remplacées.`,
+        () => {
+          S.seasons      = payload.seasons;
+          S.activeSeason = payload.activeSeason || payload.seasons[0]?.id;
+          persist();
+          renderSeasonBadge();
+          closeModal('modal-season');
+          renderActive();
+          showToast(`Import réussi — ${payload.seasons.length} saison(s) ✓`);
+        }
       );
-      if (!confirmed) return;
-      S.seasons      = payload.seasons;
-      S.activeSeason = payload.activeSeason || payload.seasons[0]?.id;
-      persist();
-      renderSeasonBadge();
-      closeModal('modal-season');
-      renderActive();
-      showToast(`Import réussi — ${payload.seasons.length} saison(s) ✓`);
     } catch(e) {
       showToast('❌ Erreur de lecture du fichier');
     }
