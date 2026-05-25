@@ -1,4 +1,4 @@
-const CACHE_NAME = 'tours-lise-v4.3';
+const CACHE_NAME = 'tours-lise-v4.4';
 const ASSETS = ['./index.html','./style.css','./app.js','./data.js','./manifest.json'];
 
 self.addEventListener('install', e => {

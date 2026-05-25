@@ -45,14 +45,12 @@ function hydrate() {
   const raw = localStorage.getItem('lise_v2_seasons');
   if (raw) {
     S.seasons = JSON.parse(raw);
-    // S'assurer que chaque tour a photo:null par défaut
     S.seasons.forEach(s => s.tours.forEach(t => { if (!('photo' in t)) t.photo = null; }));
-    S.activeSeason = localStorage.getItem('lise_v2_active') || (S.seasons[0] && S.seasons[0].id);
+    S.activeSeason = localStorage.getItem('lise_v2_active') || (S.seasons[0] && S.seasons[0].id) || null;
   } else {
-    const s2025 = { id: 'season_2025', name: '2025', tours: SEED_2025.map(t => ({...t, photo:null})) };
-    S.seasons = [s2025];
-    S.activeSeason = 'season_2025';
-    persist();
+    // Nouvelle installation — aucune donnée, aucune saison
+    S.seasons      = [];
+    S.activeSeason = null;
   }
 }
 
@@ -272,17 +270,34 @@ function renderActive() {
 
 function renderSeasonBadge() {
   const s = currentSeason();
-  document.getElementById('season-badge').textContent = s ? `Saison ${s.name}` : '—';
+  document.getElementById('season-badge').textContent = s ? `Saison ${s.name}` : 'Saisons ▼';
 }
 
 // ── TOURS PANEL ───────────────────────────────────────────
 function renderTours() {
   const season = currentSeason();
   const list = document.getElementById('tours-list');
-  if (!season || !season.tours.length) {
+
+  // Aucune saison créée
+  if (!season) {
+    list.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">🌊</div>
+        <div class="empty-text" style="margin-bottom:16px">
+          Bienvenue !<br>Créez une saison pour commencer.
+        </div>
+        <button class="add-btn" style="max-width:240px;margin:0 auto"
+                onclick="openSeasonModal()">＋ Créer une saison</button>
+      </div>`;
+    return;
+  }
+
+  // Saison vide
+  if (!season.tours.length) {
     list.innerHTML = `<div class="empty-state"><div class="empty-icon">🚢</div><div class="empty-text">Aucun tour pour cette saison.<br>Appuyez sur ＋ pour commencer.</div></div>`;
     return;
   }
+
   const sorted = [...season.tours].sort((a,b) => a.date.localeCompare(b.date) || a.label.localeCompare(b.label));
   list.innerHTML = sorted.map(t => buildTourCard(t)).join('');
 }
@@ -341,6 +356,11 @@ function buildTourCard(t) {
 let _editingTourId = null;
 
 function openAddTour() {
+  if (!currentSeason()) {
+    showToast('Créez d\'abord une saison');
+    openSeasonModal();
+    return;
+  }
   _editingTourId = null;
   _labelTouched  = false;
   document.getElementById('tour-modal-title').textContent = 'Nouveau tour';
@@ -601,7 +621,13 @@ function _doDeleteTour() {
 function renderTips() {
   const panel  = document.getElementById('panel-tips');
   const season = currentSeason();
-  const tours  = season ? [...season.tours].sort((a,b)=>a.date.localeCompare(b.date)) : [];
+
+  if (!season) {
+    panel.innerHTML = `<div class="empty-state"><div class="empty-icon">💰</div><div class="empty-text">Créez une saison pour voir les pourboires.</div></div>`;
+    return;
+  }
+
+  const tours = [...season.tours].sort((a,b)=>a.date.localeCompare(b.date));
 
   let totCAN=0, totUS=0, totEUR=0, totAUD=0;
   tours.forEach(t => {
@@ -646,7 +672,13 @@ function renderTips() {
 function renderWork() {
   const panel  = document.getElementById('panel-work');
   const season = currentSeason();
-  const tours  = season ? [...season.tours].sort((a,b)=>a.date.localeCompare(b.date)) : [];
+
+  if (!season) {
+    panel.innerHTML = `<div class="empty-state"><div class="empty-icon">⏱</div><div class="empty-text">Créez une saison pour voir le travail.</div></div>`;
+    return;
+  }
+
+  const tours = [...season.tours].sort((a,b)=>a.date.localeCompare(b.date));
 
   let totConsidered=0, totReal=0, totSent=0;
   const rows = [];
