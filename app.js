@@ -713,10 +713,15 @@ function importData(file) {
 
 // ── PHOTO ─────────────────────────────────────────────────
 let _photoTargetId = null;
+let _photoInProgress = false; // verrou pendant la sélection iOS
 
 function triggerPhoto(tourId) {
   _photoTargetId = tourId;
+  _photoInProgress = true;
   document.getElementById('photoInput').click();
+  // iOS: si l'utilisateur annule le sélecteur, aucun 'change' n'est déclenché
+  // On lève le verrou après un délai de sécurité
+  setTimeout(() => { _photoInProgress = false; }, 5000);
 }
 
 function openPhotoViewer(tourId) {
@@ -782,25 +787,39 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Photo input
   document.getElementById('photoInput').addEventListener('change', function(e) {
+    _photoInProgress = false; // lever le verrou dès qu'on a le fichier
     const file = e.target.files[0];
     if (!file || !_photoTargetId) return;
     const reader = new FileReader();
     reader.onload = ev => {
       const season = currentSeason();
       const tour = season.tours.find(t => t.id === _photoTargetId);
-      if (tour) { tour.photo = ev.target.result; persist(); renderTours(); showToast('Photo ajoutée ✓'); }
+      if (tour) {
+        tour.photo = ev.target.result;
+        persist();
+        // Rafraîchir sans fermer le modal de tour s'il est ouvert
+        const tourModal = document.getElementById('modal-tour');
+        if (tourModal && tourModal.classList.contains('open')) {
+          // Mettre à jour juste la vignette dans le modal si besoin
+          renderTours();
+        } else {
+          renderTours();
+        }
+        showToast('Photo ajoutée ✓');
+      }
+      _photoTargetId = null;
     };
     reader.readAsDataURL(file);
     this.value = '';
   });
 
-  // Overlay close
+  // Overlay close — protégé contre le flux photo iOS
   document.querySelectorAll('.modal-overlay').forEach(o => {
     o.addEventListener('click', e => {
-      if (e.target === o) {
-        o.classList.remove('open');
-        if (o.id === 'modal-tour') _saving = false;
-      }
+      if (e.target !== o) return;           // clic sur un enfant → ignorer
+      if (_photoInProgress) return;         // sélecteur photo ouvert → ignorer
+      if (o.id === 'modal-tour') _saving = false;
+      closeModal(o.id);
     });
   });
 
