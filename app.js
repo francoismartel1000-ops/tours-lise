@@ -197,7 +197,7 @@ function renderTours() {
 function buildTourCard(t) {
   const photoEl = t.photo
     ? `<div class="tc-photo" onclick="openPhotoViewer('${t.id}')"><img src="${t.photo}" alt=""></div>`
-    : `<div class="tc-photo" onclick="triggerPhoto('${t.id}')">📄</div>`;
+    : `<div class="tc-photo" onclick="triggerPhoto('${t.id}', null)">📄</div>`;
 
   const ship = t.ship     ? `<div class="tc-ship">🚢 ${t.ship}</div>` : '';
   const act  = t.activity ? `<div class="tc-act">📍 ${t.activity}</div>` : '';
@@ -717,17 +717,24 @@ function importData(file) {
 }
 
 // ── PHOTO ─────────────────────────────────────────────────
-let _photoTargetId = null;
-let _photoInProgress = false;
-let _pendingPhoto = null; // photo en attente pour un nouveau tour
+let _photoTargetId  = null;
+let _photoFromModal = null;  // id du modal à rouvrir après sélection
+let _pendingPhoto   = null;  // photo en attente pour un nouveau tour
 
-function triggerPhoto(tourId) {
-  _photoTargetId = tourId;
-  _photoInProgress = true;
-  document.getElementById('photoInput').click();
-  // iOS: si l'utilisateur annule le sélecteur, aucun 'change' n'est déclenché
-  // On lève le verrou après un délai de sécurité
-  setTimeout(() => { _photoInProgress = false; }, 5000);
+function triggerPhoto(tourId, fromModalId) {
+  _photoTargetId  = tourId;
+  _photoFromModal = fromModalId || null;
+
+  // Fermer le modal actif AVANT d'ouvrir le sélecteur
+  // sinon iOS redirige vers l'écran principal
+  if (_photoFromModal) {
+    closeModal(_photoFromModal);
+  }
+
+  // Délai pour laisser iOS terminer la fermeture du modal
+  setTimeout(() => {
+    document.getElementById('photoInput').click();
+  }, 300);
 }
 
 function openPhotoViewer(tourId) {
@@ -736,7 +743,9 @@ function openPhotoViewer(tourId) {
   if (!tour || !tour.photo) return;
   document.getElementById('photo-full-img').src = tour.photo;
   document.getElementById('photo-viewer-title').textContent = tour.label;
-  document.getElementById('btn-replace-photo').onclick = () => { closeModal('modal-photo'); triggerPhoto(tourId); };
+  document.getElementById('btn-replace-photo').onclick = () => {
+    triggerPhoto(tourId, 'modal-photo');
+  };
   document.getElementById('btn-delete-photo').onclick = () => {
     tour.photo = null; persist(); renderTours(); closeModal('modal-photo'); showToast('Photo supprimée');
   };
@@ -793,39 +802,43 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Photo input
   document.getElementById('photoInput').addEventListener('change', function(e) {
-    _photoInProgress = false; // lever le verrou
-    _saving = false;          // débloquer le bouton Sauvegarder
+    _saving = false; // débloquer le bouton Sauvegarder
     const file = e.target.files[0];
-    if (!file || !_photoTargetId) return;
+    if (!file) {
+      // Annulation — rouvrir le modal si nécessaire
+      if (_photoFromModal) { setTimeout(() => openModal(_photoFromModal), 100); }
+      return;
+    }
     const reader = new FileReader();
     reader.onload = ev => {
       const season = currentSeason();
-      // Chercher le tour dans la saison (tours déjà sauvegardés)
-      let tour = season.tours.find(t => t.id === _photoTargetId);
-
+      const tour = season.tours.find(t => t.id === _photoTargetId);
       if (tour) {
-        // Tour existant — sauvegarder la photo directement en localStorage
+        // Tour existant — sauvegarder immédiatement
         tour.photo = ev.target.result;
         persist();
         renderTours();
         showToast('Photo sauvegardée ✓');
       } else {
-        // Tour en cours de création (pas encore sauvegardé)
-        // Stocker temporairement pour l'appliquer au moment de saveTour()
+        // Nouveau tour — stocker pour saveTour()
         _pendingPhoto = ev.target.result;
-        showToast('Photo ajoutée — pensez à Sauvegarder ✓');
+        showToast('Photo prête — appuyez Sauvegarder ✓');
       }
       _photoTargetId = null;
+      // Rouvrir le modal d'origine
+      if (_photoFromModal) {
+        setTimeout(() => openModal(_photoFromModal), 100);
+        _photoFromModal = null;
+      }
     };
     reader.readAsDataURL(file);
     this.value = '';
   });
 
-  // Overlay close — protégé contre le flux photo iOS
+  // Overlay close
   document.querySelectorAll('.modal-overlay').forEach(o => {
     o.addEventListener('click', e => {
-      if (e.target !== o) return;           // clic sur un enfant → ignorer
-      if (_photoInProgress) return;         // sélecteur photo ouvert → ignorer
+      if (e.target !== o) return;
       if (o.id === 'modal-tour') _saving = false;
       closeModal(o.id);
     });
