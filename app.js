@@ -28,9 +28,38 @@ const S = {
 let _labelTouched = false;
 
 // ── STORAGE ───────────────────────────────────────────────
+// Les photos sont stockées séparément (base64 volumineux)
+// pour éviter de dépasser la limite localStorage de ~5MB sur iOS
+
 function persist() {
-  localStorage.setItem('lise_v2_seasons', JSON.stringify(S.seasons));
-  localStorage.setItem('lise_v2_active',  S.activeSeason || '');
+  // Sauvegarder les données SANS les photos
+  const seasonsNoPhoto = S.seasons.map(s => ({
+    ...s,
+    tours: s.tours.map(t => ({ ...t, photo: null }))
+  }));
+  try {
+    localStorage.setItem('lise_v2_seasons', JSON.stringify(seasonsNoPhoto));
+    localStorage.setItem('lise_v2_active',  S.activeSeason || '');
+  } catch(e) {
+    showToast('⚠️ Erreur sauvegarde données');
+  }
+  // Sauvegarder les photos séparément, une clé par tour
+  S.seasons.forEach(s => {
+    s.tours.forEach(t => {
+      const key = 'lise_photo_' + t.id;
+      try {
+        if (t.photo) {
+          localStorage.setItem(key, t.photo);
+        } else {
+          localStorage.removeItem(key);
+        }
+      } catch(e) {
+        // Photo trop volumineuse — informer l'utilisateur
+        showToast('⚠️ Photo trop lourde, réduisez la taille');
+        t.photo = null;
+      }
+    });
+  });
 }
 
 function hydrate() {
@@ -38,6 +67,13 @@ function hydrate() {
   if (raw) {
     S.seasons = JSON.parse(raw);
     S.activeSeason = localStorage.getItem('lise_v2_active') || (S.seasons[0] && S.seasons[0].id);
+    // Recharger les photos depuis leurs clés séparées
+    S.seasons.forEach(s => {
+      s.tours.forEach(t => {
+        const photo = localStorage.getItem('lise_photo_' + t.id);
+        if (photo) t.photo = photo;
+      });
+    });
   } else {
     const s2025 = { id: 'season_2025', name: '2025', tours: SEED_2025 };
     S.seasons = [s2025];
@@ -659,11 +695,12 @@ function addNewSeason() {
 
 // ── EXPORT / IMPORT ───────────────────────────────────────
 function exportData() {
+  // Inclure les photos dans l'export (les données en mémoire les ont déjà)
   const payload = {
-    version: 2,
+    version: 3,
     exportDate: new Date().toISOString(),
     appName: 'Tours Lise B.',
-    seasons: S.seasons,
+    seasons: S.seasons, // inclut les photos en mémoire
     activeSeason: S.activeSeason,
   };
   const json = JSON.stringify(payload, null, 2);
@@ -825,10 +862,19 @@ document.addEventListener('DOMContentLoaded', () => {
         showToast('Photo prête — appuyez Sauvegarder ✓');
       }
       _photoTargetId = null;
-      // Rouvrir le modal d'origine
+      // Rouvrir le modal d'origine et débloquer le bouton
       if (_photoFromModal) {
-        setTimeout(() => openModal(_photoFromModal), 100);
-        _photoFromModal = null;
+        setTimeout(() => {
+          _saving = false; // débloquer AVANT de rouvrir
+          const btn = document.getElementById('btn-save-tour');
+          if (btn) { btn.disabled = false; btn.textContent = 'Sauvegarder'; }
+          openModal(_photoFromModal);
+          _photoFromModal = null;
+        }, 100);
+      } else {
+        _saving = false;
+        const btn = document.getElementById('btn-save-tour');
+        if (btn) { btn.disabled = false; btn.textContent = 'Sauvegarder'; }
       }
     };
     reader.readAsDataURL(file);
