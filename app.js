@@ -408,14 +408,27 @@ function confirmNo() {
 }
 
 // ── SAVE TOUR ─────────────────────────────────────────────
+let _saving = false; // verrou anti-double-clic
+
 function saveTour() {
+  if (_saving) return; // bloquer les clics multiples
+  _saving = true;
+
+  // Désactiver visuellement le bouton
+  const btn = document.getElementById('btn-save-tour');
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+
   const season = currentSeason();
-  if (!season) return;
+  if (!season) { _saving = false; return; }
 
   const label = document.getElementById('tf-label').value.trim();
-  if (!label) { showToast('Entrez un nom de tour'); return; }
+  if (!label) {
+    showToast('Entrez un nom de tour');
+    _saving = false;
+    if (btn) { btn.disabled = false; btn.textContent = 'Sauvegarder'; }
+    return;
+  }
 
-  // Capturer toutes les valeurs AVANT de fermer le modal
   const tourData = {
     id:       _editingTourId || uid(),
     date:     document.getElementById('tf-date').value,
@@ -442,7 +455,7 @@ function saveTour() {
     }))
   };
 
-  const editingId = _editingTourId; // capturer avant reset
+  const editingId = _editingTourId;
 
   if (editingId) {
     const existing = season.tours.find(t => t.id === editingId);
@@ -455,9 +468,15 @@ function saveTour() {
   }
 
   persist();
-  closeModal('modal-tour');
-  renderActive();
-  showToast('Tour sauvegardé ✓');
+
+  // Fermer le modal et rafraîchir après un court délai
+  setTimeout(() => {
+    closeModal('modal-tour');
+    renderActive();
+    showToast('Tour sauvegardé ✓');
+    _saving = false;
+    if (btn) { btn.disabled = false; btn.textContent = 'Sauvegarder'; }
+  }, 150);
 }
 
 function deleteTour() {
@@ -714,8 +733,20 @@ function openPhotoViewer(tourId) {
 }
 
 // ── MODALS ────────────────────────────────────────────────
-function openModal(id)  { document.getElementById(id).classList.add('open'); }
-function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+function openModal(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.add('open');
+}
+
+function closeModal(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.remove('open');
+  // Forcer le recalcul sur iOS
+  el.style.display = 'none';
+  requestAnimationFrame(() => { el.style.display = ''; });
+}
 
 // ── BOOT ──────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -765,7 +796,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Overlay close
   document.querySelectorAll('.modal-overlay').forEach(o => {
-    o.addEventListener('click', e => { if (e.target === o) o.classList.remove('open'); });
+    o.addEventListener('click', e => {
+      if (e.target === o) {
+        o.classList.remove('open');
+        if (o.id === 'modal-tour') _saving = false;
+      }
+    });
   });
 
   // Tabs

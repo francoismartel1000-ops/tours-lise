@@ -162,9 +162,9 @@
 
       <!-- Actions -->
       <div class="f-actions" style="margin-top:16px">
-        <button class="btn-cancel" onclick="closeModal('modal-tour')">Annuler</button>
+        <button class="btn-cancel" onclick="_saving=false;closeModal('modal-tour')">Annuler</button>
         <button id="tf-delete-btn" class="btn-danger" onclick="deleteTour()" style="display:none">🗑</button>
-        <button class="btn-save" onclick="saveTour()">Sauvegarder</button>
+        <button id="btn-save-tour" class="btn-save" onclick="saveTour()">Sauvegarder</button>
       </div>
 
       <input type="hidden" id="tf-children" value="0">
