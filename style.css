@@ -321,6 +321,15 @@ select.fi option{background:var(--bg2);color:var(--text)}
   line-height:1.5;
 }
 
+.tc-photo { position:relative; }
+.tc-photo-edit {
+  position:absolute;bottom:2px;right:2px;
+  background:rgba(0,0,0,.55);border-radius:4px;
+  font-size:11px;padding:1px 4px;color:#fff;
+  pointer-events:none;
+}
+.tc-photo-empty { cursor:pointer; }
+
 /* ── MISC ── */
 #photoInput{display:none}
 .empty-state{text-align:center;padding:40px 20px;color:var(--text3)}

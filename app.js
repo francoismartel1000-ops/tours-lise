@@ -27,58 +27,115 @@ const S = {
 // Flag : le label a-t-il été modifié manuellement ?
 let _labelTouched = false;
 
-// ── STORAGE ───────────────────────────────────────────────
-// Les photos sont stockées séparément (base64 volumineux)
-// pour éviter de dépasser la limite localStorage de ~5MB sur iOS
-
+// ── STORAGE — données (localStorage, sans photos) ─────────
 function persist() {
-  // Sauvegarder les données SANS les photos
   const seasonsNoPhoto = S.seasons.map(s => ({
     ...s,
-    tours: s.tours.map(t => ({ ...t, photo: null }))
+    tours: s.tours.map(t => { const {photo, ...rest} = t; return rest; })
   }));
   try {
     localStorage.setItem('lise_v2_seasons', JSON.stringify(seasonsNoPhoto));
     localStorage.setItem('lise_v2_active',  S.activeSeason || '');
   } catch(e) {
-    showToast('⚠️ Erreur sauvegarde données');
+    showToast('⚠️ Erreur sauvegarde');
   }
-  // Sauvegarder les photos séparément, une clé par tour
-  S.seasons.forEach(s => {
-    s.tours.forEach(t => {
-      const key = 'lise_photo_' + t.id;
-      try {
-        if (t.photo) {
-          localStorage.setItem(key, t.photo);
-        } else {
-          localStorage.removeItem(key);
-        }
-      } catch(e) {
-        // Photo trop volumineuse — informer l'utilisateur
-        showToast('⚠️ Photo trop lourde, réduisez la taille');
-        t.photo = null;
-      }
-    });
-  });
 }
 
 function hydrate() {
   const raw = localStorage.getItem('lise_v2_seasons');
   if (raw) {
     S.seasons = JSON.parse(raw);
+    // S'assurer que chaque tour a photo:null par défaut
+    S.seasons.forEach(s => s.tours.forEach(t => { if (!('photo' in t)) t.photo = null; }));
     S.activeSeason = localStorage.getItem('lise_v2_active') || (S.seasons[0] && S.seasons[0].id);
-    // Recharger les photos depuis leurs clés séparées
-    S.seasons.forEach(s => {
-      s.tours.forEach(t => {
-        const photo = localStorage.getItem('lise_photo_' + t.id);
-        if (photo) t.photo = photo;
-      });
-    });
   } else {
-    const s2025 = { id: 'season_2025', name: '2025', tours: SEED_2025 };
+    const s2025 = { id: 'season_2025', name: '2025', tours: SEED_2025.map(t => ({...t, photo:null})) };
     S.seasons = [s2025];
     S.activeSeason = 'season_2025';
     persist();
+  }
+}
+
+// ── INDEXEDDB — stockage photos ───────────────────────────
+const DB_NAME    = 'lise-photos';
+const DB_STORE   = 'photos';
+const DB_VERSION = 1;
+let   _db        = null;
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    if (_db) { resolve(_db); return; }
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = e => {
+      e.target.result.createObjectStore(DB_STORE);
+    };
+    req.onsuccess = e => { _db = e.target.result; resolve(_db); };
+    req.onerror   = e => reject(e.target.error);
+  });
+}
+
+function savePhoto(tourId, dataUrl) {
+  return openDB().then(db => new Promise((resolve, reject) => {
+    const tx  = db.transaction(DB_STORE, 'readwrite');
+    const req = tx.objectStore(DB_STORE).put(dataUrl, tourId);
+    req.onsuccess = () => resolve();
+    req.onerror   = e => reject(e.target.error);
+  }));
+}
+
+function loadPhoto(tourId) {
+  return openDB().then(db => new Promise((resolve) => {
+    const tx  = db.transaction(DB_STORE, 'readonly');
+    const req = tx.objectStore(DB_STORE).get(tourId);
+    req.onsuccess = e => resolve(e.target.result || null);
+    req.onerror   = ()  => resolve(null);
+  }));
+}
+
+function deletePhoto(tourId) {
+  return openDB().then(db => new Promise((resolve) => {
+    const tx = db.transaction(DB_STORE, 'readwrite');
+    tx.objectStore(DB_STORE).delete(tourId);
+    tx.oncomplete = () => resolve();
+    tx.onerror    = () => resolve();
+  }));
+}
+
+// Charger toutes les photos depuis IndexedDB dans S.seasons
+async function loadAllPhotos() {
+  for (const s of S.seasons) {
+    for (const t of s.tours) {
+      t.photo = await loadPhoto(t.id);
+    }
+  }
+}
+
+// Export : inclure les photos dans le JSON de backup
+async function buildExportPayload() {
+  const seasonsWithPhotos = await Promise.all(S.seasons.map(async s => ({
+    ...s,
+    tours: await Promise.all(s.tours.map(async t => ({
+      ...t,
+      photo: await loadPhoto(t.id)
+    })))
+  })));
+  return {
+    version: 4,
+    exportDate: new Date().toISOString(),
+    appName: 'Tours Lise B.',
+    seasons: seasonsWithPhotos,
+    activeSeason: S.activeSeason,
+  };
+}
+
+// Import : restaurer les photos dans IndexedDB
+async function restorePhotos(seasons) {
+  for (const s of seasons) {
+    for (const t of s.tours) {
+      if (t.photo) {
+        await savePhoto(t.id, t.photo);
+      }
+    }
   }
 }
 
@@ -231,9 +288,18 @@ function renderTours() {
 }
 
 function buildTourCard(t) {
+  // La vignette photo est sur la carte (écran principal, pas dans un modal)
+  // Le label de la photo est un <label> lié à un input file unique par tour
   const photoEl = t.photo
-    ? `<div class="tc-photo" onclick="openPhotoViewer('${t.id}')"><img src="${t.photo}" alt=""></div>`
-    : `<div class="tc-photo" onclick="triggerPhoto('${t.id}', null)">📄</div>`;
+    ? `<div class="tc-photo" onclick="openPhotoViewer('${t.id}')">
+         <img src="${t.photo}" alt="">
+         <div class="tc-photo-edit">📷</div>
+       </div>`
+    : `<label class="tc-photo tc-photo-empty" for="photo-${t.id}" title="Ajouter une photo">
+         📄
+         <input type="file" id="photo-${t.id}" accept="image/*"
+           onchange="handlePhotoChange(event,'${t.id}')" style="display:none">
+       </label>`;
 
   const ship = t.ship     ? `<div class="tc-ship">🚢 ${t.ship}</div>` : '';
   const act  = t.activity ? `<div class="tc-act">📍 ${t.activity}</div>` : '';
@@ -258,13 +324,14 @@ function buildTourCard(t) {
 
   return `
     <div class="tour-card" id="tc-${t.id}">
-      <div class="tc-header" onclick="openEditTour('${t.id}')">
+      <div class="tc-header">
         ${photoEl}
-        <div class="tc-info">
+        <div class="tc-info" onclick="openEditTour('${t.id}')">
           <div class="tc-label">${t.label}</div>
           ${ship}${act}
         </div>
-        <div style="color:var(--text3);font-size:18px;padding:4px">›</div>
+        <div style="color:var(--text3);font-size:18px;padding:4px;cursor:pointer"
+             onclick="openEditTour('${t.id}')">›</div>
       </div>
       ${meta ? `<div class="tc-meta">${meta}</div>` : ''}
     </div>`;
@@ -275,8 +342,7 @@ let _editingTourId = null;
 
 function openAddTour() {
   _editingTourId = null;
-  _labelTouched = false;
-  _pendingPhoto = null;
+  _labelTouched  = false;
   document.getElementById('tour-modal-title').textContent = 'Nouveau tour';
   document.getElementById('tf-id').value        = '';
   document.getElementById('tf-date').value      = new Date().toISOString().slice(0,10);
@@ -303,8 +369,7 @@ function openEditTour(id) {
   const t = season.tours.find(t => t.id === id);
   if (!t) return;
   _editingTourId = id;
-  _labelTouched = true;
-  _pendingPhoto = null; // En édition, le label existant est conservé tel quel
+  _labelTouched  = true; // En édition, le label existant est conservé tel quel
   document.getElementById('tour-modal-title').textContent = 'Modifier le tour';
   document.getElementById('tf-id').value        = t.id;
   document.getElementById('tf-date').value      = t.date;
@@ -497,16 +562,14 @@ function saveTour() {
 
   if (editingId) {
     const existing = season.tours.find(t => t.id === editingId);
-    // Priorité : photo déjà sur le tour existant, sinon photo en attente
-    tourData.photo = (existing && existing.photo) || _pendingPhoto || null;
+    tourData.photo = existing ? existing.photo : null;
     const idx = season.tours.findIndex(t => t.id === editingId);
     if (idx >= 0) season.tours[idx] = tourData;
     else season.tours.push(tourData);
   } else {
-    tourData.photo = _pendingPhoto || null;
+    tourData.photo = null;
     season.tours.push(tourData);
   }
-  _pendingPhoto = null; // réinitialiser après sauvegarde
 
   persist();
 
@@ -694,15 +757,9 @@ function addNewSeason() {
 }
 
 // ── EXPORT / IMPORT ───────────────────────────────────────
-function exportData() {
-  // Inclure les photos dans l'export (les données en mémoire les ont déjà)
-  const payload = {
-    version: 3,
-    exportDate: new Date().toISOString(),
-    appName: 'Tours Lise B.',
-    seasons: S.seasons, // inclut les photos en mémoire
-    activeSeason: S.activeSeason,
-  };
+async function exportData() {
+  showToast('Préparation export…');
+  const payload = await buildExportPayload();
   const json = JSON.stringify(payload, null, 2);
   const blob = new Blob([json], { type: 'application/json' });
   const url  = URL.createObjectURL(blob);
@@ -731,47 +788,47 @@ function importData(file) {
         showToast('❌ Fichier invalide'); return;
       }
       const dateStr = payload.exportDate
-        ? new Date(payload.exportDate).toLocaleDateString('fr-CA')
-        : 'inconnue';
+        ? new Date(payload.exportDate).toLocaleDateString('fr-CA') : 'inconnue';
       showConfirm(
         `Importer ${payload.seasons.length} saison(s) ?\nSauvegarde du : ${dateStr}\n\nVos données actuelles seront remplacées.`,
-        () => {
-          S.seasons      = payload.seasons;
+        async () => {
+          S.seasons = payload.seasons.map(s => ({
+            ...s, tours: s.tours.map(t => ({...t, photo: null}))
+          }));
           S.activeSeason = payload.activeSeason || payload.seasons[0]?.id;
           persist();
+          await restorePhotos(payload.seasons);
+          await loadAllPhotos();
           renderSeasonBadge();
           closeModal('modal-season');
           renderActive();
-          showToast(`Import réussi — ${payload.seasons.length} saison(s) ✓`);
+          showToast(`Import réussi ✓`);
         }
       );
-    } catch(e) {
-      showToast('❌ Erreur de lecture du fichier');
-    }
+    } catch(e) { showToast('❌ Erreur de lecture'); }
   };
   reader.readAsText(file);
   document.getElementById('importInput').value = '';
 }
 
-// ── PHOTO ─────────────────────────────────────────────────
-let _photoTargetId  = null;
-let _photoFromModal = null;  // id du modal à rouvrir après sélection
-let _pendingPhoto   = null;  // photo en attente pour un nouveau tour
-
-function triggerPhoto(tourId, fromModalId) {
-  _photoTargetId  = tourId;
-  _photoFromModal = fromModalId || null;
-
-  // Fermer le modal actif AVANT d'ouvrir le sélecteur
-  // sinon iOS redirige vers l'écran principal
-  if (_photoFromModal) {
-    closeModal(_photoFromModal);
-  }
-
-  // Délai pour laisser iOS terminer la fermeture du modal
-  setTimeout(() => {
-    document.getElementById('photoInput').click();
-  }, 300);
+// ── PHOTO — IndexedDB, déclenchée depuis la carte ─────────
+function handlePhotoChange(event, tourId) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async ev => {
+    const dataUrl = ev.target.result;
+    // Sauvegarder dans IndexedDB
+    await savePhoto(tourId, dataUrl);
+    // Mettre à jour en mémoire
+    const season = currentSeason();
+    const tour = season.tours.find(t => t.id === tourId);
+    if (tour) tour.photo = dataUrl;
+    renderTours();
+    showToast('Photo sauvegardée ✓');
+  };
+  reader.readAsDataURL(file);
+  event.target.value = '';
 }
 
 function openPhotoViewer(tourId) {
@@ -781,10 +838,21 @@ function openPhotoViewer(tourId) {
   document.getElementById('photo-full-img').src = tour.photo;
   document.getElementById('photo-viewer-title').textContent = tour.label;
   document.getElementById('btn-replace-photo').onclick = () => {
-    triggerPhoto(tourId, 'modal-photo');
+    closeModal('modal-photo');
+    // Déclencher le sélecteur via le label de la carte (écran principal)
+    setTimeout(() => {
+      const input = document.getElementById('photo-' + tourId);
+      if (input) input.click();
+    }, 350);
   };
-  document.getElementById('btn-delete-photo').onclick = () => {
-    tour.photo = null; persist(); renderTours(); closeModal('modal-photo'); showToast('Photo supprimée');
+  document.getElementById('btn-delete-photo').onclick = async () => {
+    await deletePhoto(tourId);
+    const season = currentSeason();
+    const tour = season.tours.find(t => t.id === tourId);
+    if (tour) tour.photo = null;
+    renderTours();
+    closeModal('modal-photo');
+    showToast('Photo supprimée');
   };
   openModal('modal-photo');
 }
@@ -806,23 +874,25 @@ function closeModal(id) {
 }
 
 // ── BOOT ──────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   hydrate();
+  // Charger les photos depuis IndexedDB (async)
+  await loadAllPhotos();
   renderSeasonBadge();
 
-  // ── Listeners pour nom automatique ──
+  // Listeners nom automatique
   const autoFields = ['tf-date','tf-activity','tf-ship'];
   autoFields.forEach(fid => {
     document.getElementById(fid).addEventListener('input', updateAutoLabel);
     document.getElementById(fid).addEventListener('change', updateAutoLabel);
   });
 
-  // Détecter modification manuelle du label
+  // Modification manuelle du label
   document.getElementById('tf-label').addEventListener('input', () => {
     _labelTouched = true;
   });
 
-  // Bouton "régénérer le nom" (petite icône ↻ à côté du label)
+  // Bouton régénérer le nom
   const regenBtn = document.getElementById('btn-regen-label');
   if (regenBtn) {
     regenBtn.addEventListener('click', () => {
@@ -832,53 +902,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Import input
+  // Import
   document.getElementById('importInput').addEventListener('change', function(e) {
     importData(e.target.files[0]);
-  });
-
-  // Photo input
-  document.getElementById('photoInput').addEventListener('change', function(e) {
-    _saving = false; // débloquer le bouton Sauvegarder
-    const file = e.target.files[0];
-    if (!file) {
-      // Annulation — rouvrir le modal si nécessaire
-      if (_photoFromModal) { setTimeout(() => openModal(_photoFromModal), 100); }
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = ev => {
-      const season = currentSeason();
-      const tour = season.tours.find(t => t.id === _photoTargetId);
-      if (tour) {
-        // Tour existant — sauvegarder immédiatement
-        tour.photo = ev.target.result;
-        persist();
-        renderTours();
-        showToast('Photo sauvegardée ✓');
-      } else {
-        // Nouveau tour — stocker pour saveTour()
-        _pendingPhoto = ev.target.result;
-        showToast('Photo prête — appuyez Sauvegarder ✓');
-      }
-      _photoTargetId = null;
-      // Rouvrir le modal d'origine et débloquer le bouton
-      if (_photoFromModal) {
-        setTimeout(() => {
-          _saving = false; // débloquer AVANT de rouvrir
-          const btn = document.getElementById('btn-save-tour');
-          if (btn) { btn.disabled = false; btn.textContent = 'Sauvegarder'; }
-          openModal(_photoFromModal);
-          _photoFromModal = null;
-        }, 100);
-      } else {
-        _saving = false;
-        const btn = document.getElementById('btn-save-tour');
-        if (btn) { btn.disabled = false; btn.textContent = 'Sauvegarder'; }
-      }
-    };
-    reader.readAsDataURL(file);
-    this.value = '';
   });
 
   // Overlay close
